@@ -51,6 +51,12 @@ def asset(a):
         'size': a['size']
     }
 
+profileLoaded = False
+def _profileLoaded():
+    profileLoaded = True
+
+addHook("profileLoaded",_profileLoaded)
+
 def updateSingle(repositories,path,data):
     def callback(doUpdate,answer):
         if doUpdate:
@@ -64,7 +70,10 @@ def updateSingle(repositories,path,data):
                     repositories[path]['update'] = answer
                     with open(dataPath,'w') as file:
                         json.dump(repositories,file,indent=2)
-                addHook("profileLoaded",installData)
+                if profileLoaded:
+                    installData()
+                else:
+                    addHook("profileLoaded",installData)
         else:
             repositories[path]['update'] = answer
             with open(dataPath,'w') as file:
@@ -72,7 +81,7 @@ def updateSingle(repositories,path,data):
     return callback
 
 
-def update(add=[]):
+def update(add=[],install=False):
     conn = httplib.HTTPSConnection("api.github.com")
     try:
         with open(dataPath,'r') as file:
@@ -111,8 +120,22 @@ def update(add=[]):
                     }
                     if repository['update'] == 'always':
                         updateSingle(repositories,path,data)(True,'always')
+                    elif install:
+                        updateSingle(repositories,path,data)(True,'ask')
                     else:
                         dialog = DialogUpdates(None,data,repository,updateSingle(repositories,path,data))
                         dialog.exec_()
 
 update()
+
+def addRepository():
+    repo, ok = QtGui.QInputDialog.getText(aqt.mw,'Add GitHub repository',
+                                          'Path:',text='<name>/<repository>')
+    if repo and ok:
+        update([repo],install=True)
+
+firstAction = aqt.mw.form.menuPlugins.actions()[0]
+action = QtGui.QAction('From GitHub', aqt.mw)
+action.setIconVisibleInMenu(True)
+action.triggered.connect(addRepository)
+aqt.mw.form.menuPlugins.insertAction(firstAction,action)
