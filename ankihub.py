@@ -89,7 +89,7 @@ def update(add=[],install=False):
     except:
         repositories = {
             'dayjaby/AnkiHub': {
-                'id': 0,
+                'id': 4089471,
                 'update': 'ask'
             }
         }
