@@ -196,12 +196,13 @@ def update(add=[],install=False):
             }
 
     for path,repository in repositories.items():
+        username,repositoryName = path.split('/')
         if repository['update'] != 'never':
             try:
                 response = urllib2.urlopen("https://api.github.com/repos/{0}/releases/latest".format(path))
-                data = response.read()
-                release = json.loads(data)
-                datas.append(data)
+                responseData = response.read()
+                release = json.loads(responseData)
+                datas.append(responseData)
             except Exception as e:
                 datas.append(e)
                 release = {}
@@ -209,12 +210,48 @@ def update(add=[],install=False):
                 if release['id'] != repository['id']:
                     data = {
                         'id': release['id'],
-                        'name': release['name'],
+                        'name': repositoryName,
                         'tag_name': release['tag_name'],
-                        'body': release['body'],
+                        'body': '### {0}\n'.format(release['name']) + release['body'],
                         'assets': map(asset,release['assets']),
                         'update': 'ask'
                     }
+                    if 'tag_name' in repository:
+                        oldVersion = map(int,repository['tag_name'][1:].split('.'))
+                        while len(oldVersion)<3:
+                            oldVersion.append(0)
+                    else:
+                        oldVersion = [0,0,0]
+                    newVersion = map(int,data['tag_name'][1:].split('.'))
+                    isMinor = len(newVersion)>2 and newVersion[2]>0
+                    while len(newVersion)<3:
+                        newVersion.append(0)
+                    i = oldVersion[2]+1
+                    if oldVersion[0]<newVersion[0] or oldVersion[1]<newVersion[1]:
+                        if isMinor:
+                            i = 1
+                    while i<newVersion[2]:
+                        minorTagName = 'v{0}.{1}.{2}'.format(newVersion[0],oldVersion[1],i)
+                        response = urllib2.urlopen("https://api.github.com/repos/{0}/releases/tags/{1}".format(path,minorTagName))
+                        responseData = response.read()
+                        minor = json.loads(responseData)
+                        data['body'] += '\n\n### {0}\n'.format(minor['name']) + minor['body']
+                        data['assets'] += map(asset,minor['assets'])
+                    
+                        i += 1
+                    if oldVersion[0]<newVersion[0] or oldVersion[1]<newVersion[1]:
+                        # new major release necessary!
+                        if isMinor: # if the newest version is minor, fetch the additional assets from the major
+                            majorTagName = 'v{0}.{1}'.format(newVersion[0],newVersion[1])
+                            try:
+                                response = urllib2.urlopen("https://api.github.com/repos/{0}/releases/tags/{1}".format(path,majorTagName))
+                            except:
+                                response = urllib2.urlopen("https://api.github.com/repos/{0}/releases/tags/{1}.0".format(path,majorTagName))
+                            responseData = response.read()
+                            major = json.loads(responseData)
+                            data['body'] += '\n\n### {0}\n'.format(major['name']) + major['body']
+                            data['assets'] += map(asset,major['assets'])
+                        
                     if repository['update'] == 'always':
                         dialog = DialogUpdates(None,data,repository,updateSingle(repositories,path,data),'always')
                     elif install:
