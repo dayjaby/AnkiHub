@@ -1,7 +1,6 @@
 from PyQt4 import QtCore,QtGui
 import httplib
 import urllib2
-#import requests
 import json
 import os
 import sys
@@ -15,19 +14,19 @@ dataPath = os.path.expanduser('~/.ankihub.json')
 
 
 class DialogUpdates(QtGui.QDialog, Ui_DialogUpdates):
-    def __init__(self, parent, data, oldData, callback, ask=True):
+    def __init__(self, parent, data, oldData, callback, automaticAnswer=None):
         QtGui.QDialog.__init__(self,parent)
         self.setupUi(self)
         totalSize = sum(map(lambda x:x['size'],data['assets']))
 
         def answer(doUpdate,answ,append):
             callback(doUpdate,answ,append)
-#            self.close()
+            self.close()
 
         self.html = u''
         self.appendHtml(markdown(data['body']))
 
-        if ask:
+        if not automaticAnswer:
             self.connect(self.update,QtCore.SIGNAL('clicked()'),
                          lambda:answer(True,'ask',self.appendHtml))
             self.connect(self.dont,QtCore.SIGNAL('clicked()'),
@@ -37,7 +36,11 @@ class DialogUpdates(QtGui.QDialog, Ui_DialogUpdates):
             self.connect(self.never,QtCore.SIGNAL('clicked()'),
                      lambda:answer(False,'never',self.appendHtml))
         else:
-            answer(True,'ask',self.appendHtml)
+            self.update.setEnabled(False)
+            self.dont.setEnabled(False)
+            self.always.setEnabled(False)
+            self.never.setEnabled(False)
+            answer(True,automaticAnswer,self.appendHtml)
 
         fromVersion = ''
         if 'tag_name' in oldData:
@@ -49,9 +52,9 @@ class DialogUpdates(QtGui.QDialog, Ui_DialogUpdates):
                 data['tag_name']))
 
 
-    def appendHtml(self,html):
+    def appendHtml(self,html='',temp=''):
         self.html += html
-        self.textBrowser.setHtml(u'<html><body>{0}</body></html>'.format(self.html))
+        self.textBrowser.setHtml(u'<html><body>{0}{1}</body></html>'.format(self.html,temp))
 
 
 def asset(a):
@@ -73,27 +76,25 @@ def updateSingle(repositories,path,data):
             for asset in data['assets']:
                 code = asset['url']
                 p, fname = os.path.split(code)
-                appendHtml('<br />Start downloading {0}<br />'.format(fname))
                 response = urllib2.urlopen(code)
                 meta = response.info()
                 file_size = int(meta.getheaders("Content-Length")[0])
                 d = buffer('')
                 dl = 0
-                i = 10
+                i = 0
                 lastPercent = None
                 while True:
                     dkb = response.read(1024)
                     if not dkb:
                         break
-                    i += 1
                     dl += len(dkb)
                     d += dkb
-                    if i % 10 == 0:
+                    if dl*100/file_size>i:
                         lastPercent = int(dl*100/file_size)
-                        appendHtml('{0}% downloaded<br/>'.format(lastPercent))
+                        i = lastPercent+1
+                        appendHtml(temp='<br />Downloading {1}: {0}%<br/>'.format(lastPercent,fname))
                     QtGui.QApplication.instance().processEvents()
-                if lastPercent != 100:
-                    appendHtml('100% downloaded<br/>'.format(int(dl*100/file_size)))
+                appendHtml('<br />Downloading {1}: 100%<br/>'.format(int(dl*100/file_size),fname))
                 def installData():
                     aqt.mw.addonManager.install(d,fname)
                     repositories[path]['update'] = answer
@@ -151,12 +152,12 @@ def update(add=[],install=False):
                         'update': 'ask'
                     }
                     if repository['update'] == 'always':
-                        updateSingle(repositories,path,data)(True,'always')
+                        dialog = DialogUpdates(None,data,repository,updateSingle(repositories,path,data),'always')
                     elif install:
-                        updateSingle(repositories,path,data)(True,'ask')
+                        dialog = DialogUpdates(None,data,repository,updateSingle(repositories,path,data),'ask')
                     else:
                         dialog = DialogUpdates(None,data,repository,updateSingle(repositories,path,data))
-                        dialog.exec_()
+                    dialog.exec_()
     with open(dataPath,'w') as file:
         json.dump(repositories,file,indent=2)
 
