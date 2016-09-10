@@ -13,6 +13,7 @@ from anki.hooks import addHook
 headers = {"User-Agent": "AnkiHub"}
 dataPath = os.path.expanduser('~/.ankihub.json')
 
+
 class DialogUpdates(QtGui.QDialog, Ui_DialogUpdates):
     def __init__(self, parent, data, oldData, callback, ask=True):
         QtGui.QDialog.__init__(self,parent)
@@ -21,7 +22,7 @@ class DialogUpdates(QtGui.QDialog, Ui_DialogUpdates):
 
         def answer(doUpdate,answ,append):
             callback(doUpdate,answ,append)
-            self.close()
+#            self.close()
 
         self.html = u''
         self.appendHtml(markdown(data['body']))
@@ -38,10 +39,13 @@ class DialogUpdates(QtGui.QDialog, Ui_DialogUpdates):
         else:
             answer(True,'ask',self.appendHtml)
 
+        fromVersion = ''
+        if 'tag_name' in oldData:
+            fromVersion = u'from {0} '.format(oldData['tag_name'])
         self.labelUpdates.setText(
             unicode(self.labelUpdates.text()).format(
                 data['name'],
-                oldData.get('tag_name') or unicode(),
+                fromVersion,
                 data['tag_name']))
 
 
@@ -76,6 +80,7 @@ def updateSingle(repositories,path,data):
                 d = buffer('')
                 dl = 0
                 i = 10
+                lastPercent = None
                 while True:
                     dkb = response.read(1024)
                     if not dkb:
@@ -84,8 +89,11 @@ def updateSingle(repositories,path,data):
                     dl += len(dkb)
                     d += dkb
                     if i % 10 == 0:
-                        appendHtml('{0} % downloaded<br/>'.format(int(dl*100/file_size)))
+                        lastPercent = int(dl*100/file_size)
+                        appendHtml('{0}% downloaded<br/>'.format(lastPercent))
                     QtGui.QApplication.instance().processEvents()
+                if lastPercent != 100:
+                    appendHtml('100% downloaded<br/>'.format(int(dl*100/file_size)))
                 def installData():
                     aqt.mw.addonManager.install(d,fname)
                     repositories[path]['update'] = answer
@@ -101,6 +109,7 @@ def updateSingle(repositories,path,data):
                 json.dump(repositories,file,indent=2)
     return callback
 
+datas = []
 
 def update(add=[],install=False):
     conn = httplib.HTTPSConnection("api.github.com")
@@ -120,14 +129,16 @@ def update(add=[],install=False):
                 'id': 0,
                 'update': 'ask'
             }
+
     for path,repository in repositories.items():
         if repository['update'] != 'never':
             try:
-                conn.request("GET", "/repos/{0}/releases/latest".format(path),headers=headers)
-                r1 = conn.getresponse()
-                data = r1.read()
+                response = urllib2.urlopen("https://api.github.com/repos/{0}/releases/latest".format(path))
+                data = response.read()
                 release = json.loads(data)
-            except:
+                datas.append(data)
+            except Exception as e:
+                datas.append(e)
                 release = {}
             if 'id' in release:
                 if release['id'] != repository['id']:
@@ -146,6 +157,8 @@ def update(add=[],install=False):
                     else:
                         dialog = DialogUpdates(None,data,repository,updateSingle(repositories,path,data))
                         dialog.exec_()
+    with open(dataPath,'w') as file:
+        json.dump(repositories,file,indent=2)
 
 update()
 
